@@ -6,7 +6,7 @@
 > **Muhammad Shayan Shahid** (2212325) · **Muhammad Amir** (2212295)
 > Department of Computer Science, SZABIST Karachi
 
-🔴 **Live interactive dashboard:** [ADD YOUR STREAMLIT URL HERE]
+🔴 **Live interactive dashboard:** https://gap-strategy-szabist-wbz9gaayvenqbmdxx9mjod.streamlit.app/
 
 ---
 
