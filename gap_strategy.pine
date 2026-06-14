@@ -1,0 +1,98 @@
+//@version=5
+// ============================================================================
+// Overnight Gap Continuation & Fill Strategy (Gap-and-Go)
+// Muhammad Shayan Shahid (2212325) | Muhammad Amir (2212295)
+// SZABIST — Algorithmic Trading Final Project
+//
+// HOW TO USE:
+//   1. Open tradingview.com -> any chart (AAPL, TSLA, etc.) -> set timeframe to 1D
+//   2. Open the Pine Editor (bottom panel) -> paste this script -> "Add to chart"
+//   3. Green/red triangles = continuation trades, blue/orange = fill (fade) trades
+//   4. The stats table (top-right) shows live backtest results on the visible history
+//
+// LOGIC (identical to our Databricks notebook / research paper):
+//   Gap%  = (Open - PrevClose) / PrevClose * 100        [known at the open]
+//   ATR%  = Wilder ATR(14) of PREVIOUS bars / PrevClose [no look-ahead]
+//   RelVol = Volume / 20-day average volume
+//   CONTINUATION: |Gap%| >= K1*ATR%  AND RelVol >= VolMult  -> trade WITH the gap
+//   FILL (fade):  |Gap%| <= K2*ATR%  AND RelVol <  VolMult  -> trade AGAINST the gap
+//   All trades: enter at Open, exit at the same day's Close
+// ============================================================================
+
+indicator("Gap Continuation & Fill Strategy [SZABIST]", overlay = true, max_labels_count = 500)
+
+// ---------------- Inputs ----------------
+atrLen   = input.int(14,    "ATR Period",                       minval = 2)
+k1       = input.float(1.0, "Continuation threshold K1 (xATR%)", minval = 0.1, step = 0.05)
+k2       = input.float(0.5, "Fill threshold K2 (xATR%)",         minval = 0.05, step = 0.05)
+volMult  = input.float(1.5, "Volume multiplier",                 minval = 0.5, step = 0.1)
+useVol   = input.bool(true, "Use volume filter (turn OFF for forex)")
+showFill = input.bool(true, "Show gap-fill target line")
+
+// ---------------- Features (all known at the bar's open) ----------------
+prevClose = close[1]
+atrPrev   = ta.rma(ta.tr(true), atrLen)[1]          // Wilder ATR of previous bars
+atrPct    = atrPrev / prevClose * 100
+gapPct    = (open - prevClose) / prevClose * 100
+avgVol20  = ta.sma(volume, 20)[1]
+relVol    = avgVol20 > 0 ? volume / avgVol20 : 1.0
+
+validBar  = not na(prevClose) and not na(atrPct) and atrPct > 0
+absGap    = math.abs(gapPct)
+volHigh   = not useVol or relVol >= volMult
+volLow    = not useVol or relVol <  volMult
+
+contLong  = validBar and gapPct >=  k1 * atrPct and volHigh   // gap UP, ride it
+contShort = validBar and gapPct <= -k1 * atrPct and volHigh   // gap DOWN, ride it
+fillLong  = validBar and gapPct < 0 and absGap <= k2 * atrPct and volLow  // small gap DOWN, fade up
+fillShort = validBar and gapPct > 0 and absGap <= k2 * atrPct and volLow  // small gap UP, fade down
+
+anySignal = contLong or contShort or fillLong or fillShort
+sideLong  = contLong or fillLong
+
+// ---------------- Plotting ----------------
+plotshape(contLong,  title = "Continuation LONG",  style = shape.triangleup,   location = location.belowbar, color = color.new(#16a085, 0), size = size.small, text = "GO ▲")
+plotshape(contShort, title = "Continuation SHORT", style = shape.triangledown, location = location.abovebar, color = color.new(#f23645, 0), size = size.small, text = "GO ▼")
+plotshape(fillLong,  title = "Fill LONG (fade)",   style = shape.triangleup,   location = location.belowbar, color = color.new(#2962ff, 0), size = size.small, text = "FILL")
+plotshape(fillShort, title = "Fill SHORT (fade)",  style = shape.triangledown, location = location.abovebar, color = color.new(#ff9800, 0), size = size.small, text = "FILL")
+
+bgcolor(anySignal ? color.new(sideLong ? #16a085 : #f23645, 92) : na)
+
+// Gap-fill target line: previous close, drawn on fade days
+if showFill and (fillLong or fillShort)
+    line.new(bar_index - 1, prevClose, bar_index, prevClose, color = color.new(#787b86, 30), style = line.style_dashed, width = 2)
+
+// ---------------- Built-in backtest stats (entry = open, exit = close) ----------------
+var int   nCont   = 0
+var int   nFill   = 0
+var int   nWins   = 0
+var float cumRoi  = 0.0
+
+tradeRoi = sideLong ? (close - open) / open : (open - close) / open
+
+if anySignal and barstate.isconfirmed
+    nCont  += (contLong or contShort) ? 1 : 0
+    nFill  += (fillLong or fillShort) ? 1 : 0
+    nWins  += tradeRoi > 0 ? 1 : 0
+    cumRoi += tradeRoi
+
+nTotal = nCont + nFill
+
+var table t = table.new(position.top_right, 2, 6, bgcolor = color.new(color.white, 10), border_width = 1, border_color = color.new(#787b86, 60))
+if barstate.islast
+    table.cell(t, 0, 0, "Gap Strategy",        text_color = color.black, bgcolor = color.new(#2962ff, 75), text_size = size.small)
+    table.cell(t, 1, 0, syminfo.ticker + " 1D", text_color = color.black, bgcolor = color.new(#2962ff, 75), text_size = size.small)
+    table.cell(t, 0, 1, "Signals (total)",      text_color = color.black, text_size = size.small)
+    table.cell(t, 1, 1, str.tostring(nTotal),   text_color = color.black, text_size = size.small)
+    table.cell(t, 0, 2, "Continuation / Fill",  text_color = color.black, text_size = size.small)
+    table.cell(t, 1, 2, str.tostring(nCont) + " / " + str.tostring(nFill), text_color = color.black, text_size = size.small)
+    table.cell(t, 0, 3, "Win rate",             text_color = color.black, text_size = size.small)
+    table.cell(t, 1, 3, nTotal > 0 ? str.tostring(nWins * 100.0 / nTotal, "#.1") + "%" : "—", text_color = color.black, text_size = size.small)
+    table.cell(t, 0, 4, "Sum of trade ROI",     text_color = color.black, text_size = size.small)
+    table.cell(t, 1, 4, str.tostring(cumRoi * 100, "#.1") + "%", text_color = cumRoi >= 0 ? color.new(#16a085, 0) : color.new(#f23645, 0), text_size = size.small)
+    table.cell(t, 0, 5, "Today's Gap%",         text_color = color.black, text_size = size.small)
+    table.cell(t, 1, 5, str.tostring(gapPct, "#.2") + "%", text_color = color.black, text_size = size.small)
+
+// ---------------- Alerts (bonus: get notified of live signals) ----------------
+alertcondition(contLong or contShort, "Gap Continuation Signal", "Gap-and-Go: continuation signal on {{ticker}}")
+alertcondition(fillLong or fillShort, "Gap Fill Signal",         "Gap-and-Go: fill/fade signal on {{ticker}}")
