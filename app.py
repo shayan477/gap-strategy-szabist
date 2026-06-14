@@ -14,38 +14,71 @@ import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-st.set_page_config(page_title="Gap-and-Go Strategy", page_icon="📈", layout="wide")
+st.set_page_config(page_title="Gap-and-Go Strategy", page_icon="📈", layout="wide",
+                   initial_sidebar_state="expanded")
+
+# ----------------------------- theme / CSS -----------------------------
+GREEN, RED, BLUE, AMBER = "#0ECB81", "#F6465D", "#3B82F6", "#F0B90B"
+INK, PANEL, GRID, MUTED = "#0B0E11", "#151A21", "#222B36", "#8A93A6"
+
+st.markdown(f"""
+<style>
+  .stApp {{ background: {INK}; }}
+  section[data-testid="stSidebar"] {{ background: {PANEL}; border-right: 1px solid {GRID}; }}
+  h1, h2, h3, h4 {{ font-family: 'Inter','Segoe UI',sans-serif; letter-spacing:-0.02em; }}
+  .hero-title {{ font-size: 1.9rem; font-weight: 800; color: #fff; margin-bottom: 0; }}
+  .hero-sub {{ color: {MUTED}; font-size: 0.95rem; margin-top: 2px; }}
+  .badge {{ display:inline-block; padding:3px 10px; border-radius:20px; font-size:0.72rem;
+            font-weight:600; margin-right:6px; border:1px solid {GRID}; color:{MUTED}; }}
+  /* metric cards */
+  div[data-testid="stMetric"] {{ background:{PANEL}; border:1px solid {GRID};
+       border-radius:12px; padding:14px 16px; }}
+  div[data-testid="stMetricLabel"] p {{ color:{MUTED}; font-size:0.78rem; font-weight:600;
+       text-transform:uppercase; letter-spacing:0.04em; }}
+  div[data-testid="stMetricValue"] {{ font-size:1.5rem; font-weight:700; }}
+  .stTabs [data-baseweb="tab-list"] {{ gap: 4px; }}
+  .stTabs [data-baseweb="tab"] {{ background:{PANEL}; border-radius:8px 8px 0 0;
+       padding:8px 16px; color:{MUTED}; }}
+  .stTabs [aria-selected="true"] {{ background:{GRID}; color:#fff; }}
+  .note {{ background:{PANEL}; border-left:3px solid {BLUE}; border-radius:8px;
+       padding:12px 16px; color:#C9D1D9; font-size:0.9rem; }}
+</style>
+""", unsafe_allow_html=True)
 
 # ----------------------------- sidebar -----------------------------
-st.sidebar.title("⚙️ Strategy Controls")
+st.sidebar.markdown("### ⚙️ Strategy Controls")
 
 TICKERS = {
-    "AAPL (Apple)": "AAPL", "MSFT (Microsoft)": "MSFT", "TSLA (Tesla)": "TSLA",
-    "NVDA (Nvidia)": "NVDA", "AMZN (Amazon)": "AMZN",
-    "BTC-USD (Bitcoin)": "BTC-USD", "ETH-USD (Ethereum)": "ETH-USD",
-    "EURUSD=X (Euro/USD)": "EURUSD=X", "USDJPY=X (USD/Yen)": "USDJPY=X",
+    "AAPL · Apple": "AAPL", "MSFT · Microsoft": "MSFT", "TSLA · Tesla": "TSLA",
+    "NVDA · Nvidia": "NVDA", "AMZN · Amazon": "AMZN",
+    "BTC-USD · Bitcoin": "BTC-USD", "ETH-USD · Ethereum": "ETH-USD",
+    "EURUSD=X · Euro/USD": "EURUSD=X", "USDJPY=X · USD/Yen": "USDJPY=X",
 }
 ticker_label = st.sidebar.selectbox("Instrument", list(TICKERS.keys()))
 ticker = TICKERS[ticker_label]
-
 start_year = st.sidebar.slider("Backtest start year", 2015, 2025, 2018)
 
-st.sidebar.subheader("Gap Strategy Parameters")
-K1 = st.sidebar.slider("Continuation threshold K1 (× ATR%)", 0.25, 2.0, 1.0, 0.05,
-                       help="Gap must be at least K1 × normal daily range to trade WITH the gap")
-K2 = st.sidebar.slider("Fill threshold K2 (× ATR%)", 0.1, 1.0, 0.5, 0.05,
-                       help="Gaps smaller than K2 × normal daily range are faded back toward previous close")
+st.sidebar.markdown("#### Signal thresholds")
+K1 = st.sidebar.slider("Continuation K1 (×ATR%)", 0.25, 2.0, 1.0, 0.05,
+                       help="Gap must exceed K1 × normal daily range to trade WITH the gap.")
+K2 = st.sidebar.slider("Fill K2 (×ATR%)", 0.1, 1.0, 0.5, 0.05,
+                       help="Gaps smaller than K2 × normal range are faded toward the previous close.")
 VOL_MULT = st.sidebar.slider("Volume multiplier", 1.0, 3.0, 1.5, 0.1,
-                             help="Continuation requires volume ≥ this × 20-day average")
+                             help="Continuation also requires volume ≥ this × 20-day average.")
+st.sidebar.markdown("#### Execution")
 improved = st.sidebar.toggle("Improved variant (fill target + ATR stop)", value=True)
-STOP_ATR = st.sidebar.slider("Stop-loss (× ATR)", 0.5, 2.0, 1.0, 0.25) if improved else 1.0
-COST_BPS = st.sidebar.slider("Transaction cost (bps per round trip)", 0, 30, 10)
+STOP_ATR = st.sidebar.slider("Stop-loss (×ATR)", 0.5, 2.0, 1.0, 0.25) if improved else 1.0
+COST_BPS = st.sidebar.slider("Transaction cost (bps / round trip)", 0, 30, 10)
+
+st.sidebar.markdown("#### Chart")
+max_markers = st.sidebar.slider("Max trade markers shown", 10, 150, 40, 5,
+                                help="Only the largest-gap trades are marked, to keep the chart readable.")
 
 ATR_PERIOD = 14
 INITIAL_CAPITAL = 100_000
 
 # ----------------------------- data -----------------------------
-@st.cache_data(ttl=3600, show_spinner="Downloading data from Yahoo Finance…")
+@st.cache_data(ttl=3600, show_spinner="Fetching market data…")
 def load_data(tkr: str) -> pd.DataFrame:
     df = yf.download(tkr, period="max", interval="1d", progress=False, auto_adjust=False)
     if isinstance(df.columns, pd.MultiIndex):
@@ -56,7 +89,7 @@ def load_data(tkr: str) -> pd.DataFrame:
     return df
 
 
-def engineer(df: pd.DataFrame) -> pd.DataFrame:
+def engineer(df):
     df = df.sort_values("Date").reset_index(drop=True).copy()
     df["Prev_Close"] = df["Close"].shift(1)
     hl = df["High"] - df["Low"]
@@ -73,7 +106,7 @@ def engineer(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def route(df: pd.DataFrame) -> pd.DataFrame:
+def route(df):
     df = df.copy()
     valid = df["Gap_pct"].notna() & df["ATR_pct"].notna() & (df["ATR_pct"] > 0)
     ag = df["Gap_pct"].abs()
@@ -89,7 +122,7 @@ def route(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def backtest(df: pd.DataFrame) -> pd.DataFrame:
+def backtest(df):
     trades, cost = [], COST_BPS / 10_000
     for _, r in df[df["SignalType"] != "NONE"].iterrows():
         entry, side, exitp, reason = r["Open"], r["Side"], r["Close"], "CLOSE"
@@ -116,16 +149,21 @@ def backtest(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ----------------------------- run -----------------------------
-st.title("📈 Overnight Gap Continuation & Fill Strategy")
-st.caption("Gap-and-Go | Muhammad Shayan Shahid (2212325) · Muhammad Amir (2212295) | SZABIST Algorithmic Trading")
+st.markdown('<div class="hero-title">Overnight Gap Continuation &amp; Fill Strategy</div>',
+            unsafe_allow_html=True)
+st.markdown('<div class="hero-sub">Gap-and-Go · Muhammad Shayan Shahid (2212325) · '
+            'Muhammad Amir (2212295) · SZABIST Algorithmic Trading</div>', unsafe_allow_html=True)
+st.markdown(f'<div style="margin:10px 0 4px"><span class="badge">{ticker_label}</span>'
+            f'<span class="badge">from {start_year}</span>'
+            f'<span class="badge">{"improved" if improved else "baseline"}</span>'
+            f'<span class="badge">{COST_BPS} bps cost</span></div>', unsafe_allow_html=True)
+st.write("")
 
 raw = load_data(ticker)
 df = engineer(raw)
 df = df[df["Date"] >= pd.Timestamp(f"{start_year}-01-01")].reset_index(drop=True)
-
 if len(df) < 60:
-    st.error("Not enough data for this instrument/start year."); st.stop()
-
+    st.error("Not enough data for this instrument / start year."); st.stop()
 df = route(df)
 trades = backtest(df)
 
@@ -137,10 +175,11 @@ if len(trades):
 df["Strategy_Equity"] = INITIAL_CAPITAL * (1 + df["Strategy_Return"]).cumprod()
 df["BuyHold_Equity"] = INITIAL_CAPITAL * (1 + df["Market_Return"]).cumprod()
 
-# ----------------------------- metrics -----------------------------
+
 def sharpe(r):
     s = r.std()
     return r.mean() / s * np.sqrt(252) if s and s > 0 else np.nan
+
 
 strat_ret = (df["Strategy_Equity"].iloc[-1] / INITIAL_CAPITAL - 1) * 100
 bh_ret = (df["BuyHold_Equity"].iloc[-1] / INITIAL_CAPITAL - 1) * 100
@@ -154,81 +193,132 @@ pf = gp / gl if gl > 0 else np.nan
 c1, c2, c3, c4, c5, c6 = st.columns(6)
 c1.metric("Strategy Return", f"{strat_ret:,.1f}%", f"{strat_ret - bh_ret:,.1f}% vs B&H")
 c2.metric("Buy & Hold", f"{bh_ret:,.1f}%")
-c3.metric("Trades", f"{len(trades)}")
+c3.metric("Trades", f"{len(trades):,}")
 c4.metric("Win Rate", f"{wr:,.1f}%" if len(trades) else "—")
 c5.metric("Profit Factor", f"{pf:,.2f}" if pf == pf else "—")
-c6.metric("Max Drawdown", f"{mdd:,.1f}%")
-st.metric("Sharpe Ratio (annualized)", f"{sharpe(df['Strategy_Return']):,.2f}")
+c6.metric("Sharpe", f"{sharpe(df['Strategy_Return']):,.2f}")
 
 if ticker.endswith("-USD"):
-    st.info("🪙 **Crypto control group:** this market trades 24/7, so opening gaps barely exist — "
-            f"only **{len(trades)} signals** were generated. This confirms gaps are created by market closures.")
+    st.markdown(f'<div class="note">🪙 <b>Crypto control group.</b> This market trades 24/7, so '
+                f'opening gaps barely exist — only <b>{len(trades):,} signals</b> were generated. '
+                f'This confirms gaps are created by market closures, not price action.</div>',
+                unsafe_allow_html=True)
+st.write("")
 
-# ----------------------------- charts -----------------------------
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Price & Trades", "💰 Equity Curve", "📉 Gap Analysis", "📋 Trade Log"])
+# shared chart layout
+def style_fig(fig, h=560, title=None):
+    fig.update_layout(height=h, paper_bgcolor=INK, plot_bgcolor=INK,
+                      font=dict(color="#C9D1D9", family="Inter, Segoe UI, sans-serif"),
+                      margin=dict(l=10, r=10, t=86, b=10),
+                      title=dict(text=title, x=0, xanchor="left", y=0.97, yanchor="top",
+                                 font=dict(size=17, color="#FFFFFF")) if title else None,
+                      legend=dict(bgcolor="rgba(0,0,0,0)", orientation="h",
+                                  yanchor="bottom", y=1.0, xanchor="left", x=0),
+                      hovermode="x unified")
+    fig.update_xaxes(gridcolor=GRID, zeroline=False, showspikes=True, spikecolor=MUTED,
+                     spikethickness=1, spikemode="across", rangeslider_visible=False)
+    fig.update_yaxes(gridcolor=GRID, zeroline=False)
+    return fig
+
+
+tab1, tab2, tab3, tab4 = st.tabs(["📊  Price & Trades", "💰  Performance",
+                                  "🔬  Gap Analysis", "📋  Trade Log"])
 
 with tab1:
-    months = st.slider("Show last N months", 3, 60, 12, key="cw")
-    cdf = df[df["Date"] >= df["Date"].max() - pd.DateOffset(months=months)]
-    ct = trades[trades["Date"] >= cdf["Date"].min()] if len(trades) else trades
-    fig = go.Figure(go.Candlestick(x=cdf["Date"], open=cdf["Open"], high=cdf["High"],
-                                   low=cdf["Low"], close=cdf["Close"], name=ticker))
+    months = st.slider("Window (months)", 3, 60, 12, key="cw")
+    cdf = df[df["Date"] >= df["Date"].max() - pd.DateOffset(months=months)].copy()
+    ct = trades[trades["Date"] >= cdf["Date"].min()].copy() if len(trades) else trades
+    # keep only the most significant trades (largest |gap|) so the chart stays readable
+    shown = pd.DataFrame()
     if len(ct):
-        L, S = ct[ct["Side"] == "LONG"], ct[ct["Side"] == "SHORT"]
-        fig.add_trace(go.Scatter(x=L["Date"], y=L["Entry"], mode="markers", name="LONG entry",
-                                 marker=dict(symbol="triangle-up", size=13, color="#16a085")))
-        fig.add_trace(go.Scatter(x=S["Date"], y=S["Entry"], mode="markers", name="SHORT entry",
-                                 marker=dict(symbol="triangle-down", size=13, color="#f23645")))
-    fig.update_layout(height=550, xaxis_rangeslider_visible=False,
-                      title=f"{ticker} — gap trades (last {months} months)")
-    st.plotly_chart(fig, use_container_width=True)
+        ct["absGap"] = ct["Gap_pct"].abs()
+        shown = ct.sort_values("absGap", ascending=False).head(max_markers)
+
+    fig = go.Figure(go.Candlestick(
+        x=cdf["Date"], open=cdf["Open"], high=cdf["High"], low=cdf["Low"], close=cdf["Close"],
+        increasing_line_color=GREEN, decreasing_line_color=RED,
+        increasing_fillcolor=GREEN, decreasing_fillcolor=RED, name=ticker, opacity=0.9))
+    if len(shown):
+        wins = shown[shown["ROI"] > 0]; losses = shown[shown["ROI"] <= 0]
+        pad = (cdf["High"].max() - cdf["Low"].min()) * 0.015
+        fig.add_trace(go.Scatter(
+            x=wins["Date"], y=wins["Entry"] - pad, mode="markers", name="Winning trade",
+            marker=dict(symbol="triangle-up", size=11, color=GREEN,
+                        line=dict(width=1, color="#0a0")),
+            customdata=np.stack([wins["Type"], wins["Side"], wins["Gap_pct"], wins["ROI_pct"]], -1),
+            hovertemplate="<b>%{customdata[0]} %{customdata[1]}</b><br>Gap %{customdata[2]:.2f}%"
+                          "<br>ROI %{customdata[3]:.2f}%<extra></extra>"))
+        fig.add_trace(go.Scatter(
+            x=losses["Date"], y=losses["Entry"] + pad, mode="markers", name="Losing trade",
+            marker=dict(symbol="triangle-down", size=11, color=RED, line=dict(width=1, color="#900")),
+            customdata=np.stack([losses["Type"], losses["Side"], losses["Gap_pct"], losses["ROI_pct"]], -1),
+            hovertemplate="<b>%{customdata[0]} %{customdata[1]}</b><br>Gap %{customdata[2]:.2f}%"
+                          "<br>ROI %{customdata[3]:.2f}%<extra></extra>"))
+    st.plotly_chart(style_fig(fig, title=f"{ticker} — {len(shown)} most significant gap "
+                                         f"trades (of {len(ct)} in window)"), width='stretch')
+    st.caption("Only the largest-gap trades are marked so candles stay readable; "
+               "green ▲ = winner, red ▼ = loser. Adjust the marker limit in the sidebar.")
 
 with tab2:
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.7, 0.3],
-                        subplot_titles=("Equity: Strategy vs Buy & Hold", "Drawdown %"))
+                        vertical_spacing=0.06,
+                        subplot_titles=("Equity: Strategy vs Buy &amp; Hold", "Drawdown %"))
     fig.add_trace(go.Scatter(x=df["Date"], y=df["Strategy_Equity"], name="Gap Strategy",
-                             line=dict(color="#2962ff", width=2)), 1, 1)
+                             line=dict(color=BLUE, width=2.2),
+                             fill="tozeroy", fillcolor="rgba(59,130,246,0.08)"), 1, 1)
     fig.add_trace(go.Scatter(x=df["Date"], y=df["BuyHold_Equity"], name="Buy & Hold",
-                             line=dict(color="#ff9800", width=2)), 1, 1)
+                             line=dict(color=AMBER, width=2)), 1, 1)
     dd = (df["Strategy_Equity"] - peak) / peak * 100
-    fig.add_trace(go.Scatter(x=df["Date"], y=dd, fill="tozeroy", name="Drawdown",
-                             line=dict(color="#f23645")), 2, 1)
-    fig.update_layout(height=600)
-    st.plotly_chart(fig, use_container_width=True)
+    fig.add_trace(go.Scatter(x=df["Date"], y=dd, name="Drawdown", line=dict(color=RED, width=1),
+                             fill="tozeroy", fillcolor="rgba(246,70,93,0.15)"), 2, 1)
+    fig.add_hline(y=INITIAL_CAPITAL, line_dash="dot", line_color=MUTED, row=1, col=1)
+    st.plotly_chart(style_fig(fig, 620), width='stretch')
 
 with tab3:
-    colA, colB = st.columns(2)
-    with colA:
-        fig = go.Figure(go.Histogram(x=df["Gap_pct"].clip(-5, 5), nbinsx=60, marker_color="#2962ff"))
-        fig.update_layout(title="Opening Gap Distribution (Gap %)", height=400)
-        st.plotly_chart(fig, use_container_width=True)
-    with colB:
+    a, b = st.columns(2)
+    with a:
+        fig = go.Figure(go.Histogram(x=df["Gap_pct"].clip(-5, 5), nbinsx=60,
+                                     marker_color=BLUE, marker_line_width=0))
+        fig.update_layout(title="Opening gap distribution (Gap %)", bargap=0.02)
+        st.plotly_chart(style_fig(fig, 400), width='stretch')
+    with b:
         if len(trades):
             t = trades.copy()
             t["Bucket"] = pd.cut(t["Gap_pct"].abs(), [0, 0.5, 1, 2, 5, 100],
                                  labels=["0–0.5%", "0.5–1%", "1–2%", "2–5%", ">5%"])
-            b = t.groupby("Bucket", observed=True)["ROI"].agg(WinRate=lambda x: (x > 0).mean() * 100)
-            fig = go.Figure(go.Bar(x=b.index.astype(str), y=b["WinRate"], marker_color="#16a085"))
-            fig.add_hline(y=50, line_dash="dash", line_color="#f23645")
-            fig.update_layout(title="Win Rate by Gap Size", height=400, yaxis_title="Win %")
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("No trades with current parameters.")
+            grp = t.groupby("Bucket", observed=True)["ROI"]
+            bw = grp.apply(lambda x: (x > 0).mean() * 100)
+            bn = grp.count()
+            colors = [GREEN if v >= 50 else RED for v in bw]
+            fig = go.Figure(go.Bar(x=bw.index.astype(str), y=bw.values, marker_color=colors,
+                                   text=[f"{v:.0f}%<br>n={n}" for v, n in zip(bw.values, bn.values)],
+                                   textposition="outside"))
+            fig.add_hline(y=50, line_dash="dash", line_color=MUTED)
+            fig.update_layout(title="Win rate by gap size", yaxis_title="Win %",
+                              yaxis_range=[0, 100])
+            st.plotly_chart(style_fig(fig, 400), width='stretch')
     if len(trades):
-        st.subheader("Continuation vs Fill performance")
-        st.dataframe(trades.groupby("Type")["ROI_pct"].agg(
-            Trades="count", WinRate=lambda x: round((x > 0).mean() * 100, 1),
-            AvgROI=lambda x: round(x.mean(), 3)), use_container_width=True)
+        st.markdown("##### Continuation vs Fill")
+        tbl = trades.groupby("Type").agg(
+            Trades=("ROI", "count"),
+            Win_Rate=("ROI", lambda x: round((x > 0).mean() * 100, 1)),
+            Avg_ROI=("ROI_pct", lambda x: round(x.mean(), 3)),
+            Median_ROI=("ROI_pct", lambda x: round(x.median(), 3))).reset_index()
+        st.dataframe(tbl, width='stretch', hide_index=True)
 
 with tab4:
     if len(trades):
-        show = trades[["Date", "Type", "Side", "Entry", "Exit", "ExitReason", "Gap_pct", "ROI_pct", "PnL"]].copy()
-        st.dataframe(show.sort_values("Date", ascending=False).round(3),
-                     use_container_width=True, height=500)
-        st.download_button("⬇️ Download trade log (CSV)", show.to_csv(index=False),
+        show = trades[["Date", "Type", "Side", "Entry", "Exit", "ExitReason",
+                       "Gap_pct", "ROI_pct", "PnL"]].copy().sort_values("Date", ascending=False)
+        show["Date"] = show["Date"].dt.strftime("%Y-%m-%d")
+        num_cols = show.select_dtypes(include="number").columns
+        show[num_cols] = show[num_cols].round(3)
+        st.dataframe(show, width='stretch', height=460, hide_index=True)
+        st.download_button("⬇  Download trade log (CSV)", show.to_csv(index=False),
                            f"{ticker}_gap_trades.csv", "text/csv")
     else:
-        st.warning("No trades with current parameters — try loosening the thresholds.")
+        st.info("No trades with the current parameters — try loosening the thresholds in the sidebar.")
 
 st.divider()
-st.caption("⚠️ Educational backtest only — not investment advice. Data: Yahoo Finance via yfinance.")
+st.caption("Educational backtest only — not investment advice. Data: Yahoo Finance via yfinance. "
+           "Entries at the open, exits at the close (or stop/target in the improved variant).")
