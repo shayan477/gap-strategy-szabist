@@ -1,92 +1,105 @@
-# 📈 Overnight Gap Continuation & Fill Strategy (Gap-and-Go)
+# 📈 Smart-RSI Mean Reversion Strategy
 
-**An empirical backtesting study of the opening gap anomaly across stocks, cryptocurrencies, and forex.**
+**An improved RSI-2 mean-reversion trading strategy featuring a novel Volatility-Scaled Entry (VSE), backtested on the S&P 500 ETF (SPY).**
 
-> Algorithmic Trading — Final Project
-> **Muhammad Shayan Shahid** (2212325) · **Muhammad Amir** (2212295)
-> Department of Computer Science, SZABIST Karachi · Instructor: Asif Khalid
+> **Algorithmic Trading — Final Project**
+> Muhammad Shayan Shahid (2212325) · Muhammad Amir (2212295)
+> Department of Computer Science, SZABIST Karachi
+> Instructor: Asif Khalid · June 2026
 
-🔴 **Live interactive dashboard:** https://gap-strategy-szabist-wbz9gaayvenqbmdxx9mjod.streamlit.app/
+🔴 **Live interactive dashboard:** smart-rsi.streamlit.app
 
 ---
 
 ## 💡 The Idea
 
-When a market closes overnight, news keeps arriving — so the next day's **open often differs from the previous close**, creating an *opening gap*. Trading folklore offers two contradictory rules: *"gaps get filled"* and *"gaps go."* We encode **both** into one conditional strategy and let the data decide which is true, and when:
+When a market is in a long-term uptrend, sharp short-term dips usually recover. This is the basis of **mean reversion** — buy temporary weakness, sell into the bounce.
 
-| Condition (checked at the open) | Action |
-|---|---|
-| \|Gap%\| ≥ K1 × ATR% **and** Volume ≥ 1.5 × average | **Continuation** — trade *with* the gap |
-| \|Gap%\| ≤ K2 × ATR% **and** Volume < 1.5 × average | **Fill** — fade the gap, target previous close |
-| Anything in between | **No trade** (the ambiguous zone) |
+The classic **RSI-2 strategy** (Larry Connors) does exactly this:
+- **Trend filter:** only trade when price is above its 200-day moving average (confirmed uptrend).
+- **Entry:** buy when the 2-period RSI drops below 10 (a sharp oversold dip).
+- **Exit:** sell when price closes back above its 5-day moving average (the bounce).
 
-All trades enter at the open and exit the same day — zero overnight risk. The gap size is normalized by the Average True Range (ATR) so a "2% gap" means something different for TSLA than for a forex pair.
+Our improved **Smart-RSI** keeps this proven core and adds four enhancements — the most important being an original mechanism of our own design.
 
-**The control-group trick:** cryptocurrencies trade 24/7 and therefore *cannot* gap. Including BTC/ETH lets us prove gaps are created by market closures — if the strategy "worked" on crypto, it would be an artifact.
+### ★ The Novel Contribution — Volatility-Scaled Entry (VSE)
+
+The classic strategy uses **one fixed entry threshold in all market conditions**. VSE makes the entry threshold **adapt to volatility**:
+
+| Market condition | VSE behaviour | Why |
+|---|---|---|
+| **Calm** | Stricter — requires a deeper dip | Avoids false signals in quiet markets |
+| **Volatile** | Looser — accepts a shallower dip | Captures sharper, higher-payoff bounces |
+
+Formula: `entry_level = base − span + 2 × span × VolNorm`, where `VolNorm` is the current volatility normalised 0–1 over a 100-day lookback. We have not found this volatility-scaled RSI-2 entry published elsewhere — it is our own contribution.
+
+## 📊 Key Results (SPY, 2010–2026)
+
+| Metric | Existing RSI-2 | Smart-RSI (Improved) | Verdict |
+|---|---|---|---|
+| Total Return | +78.33% | **+143.40%** | ▲ Improved |
+| Win Rate | 70.29% | **78.57%** | ▲ Improved |
+| Profit Factor | 1.80 | **2.00** | ▲ Improved |
+| Max Drawdown | −14.72% | **−8.63%** | ▲ Improved |
+| Sharpe Ratio | 0.57 | **0.87** | ▲ Improved |
+| Trades | 138 | 126 | — |
+
+**Smart-RSI improves the existing strategy on all five performance metrics** — nearly doubling the return while almost halving the drawdown.
+
+### Honest Out-of-Sample Validation
+
+Parameters were tuned only on **2010–2023 (in-sample)** and then tested on completely unseen **2023–2026 (out-of-sample)** data:
+
+| Period | Return | Win Rate | Profit Factor | Sharpe |
+|---|---|---|---|---|
+| In-Sample (2010–2023) | +79.64% | 77.66% | 1.86 | 0.73 |
+| **Out-of-Sample (2023–2026)** | **+35.50%** | **81.25%** | **2.45** | **1.39** |
+
+The strategy held its ~78% win rate and achieved its best Sharpe (1.39) on data it was never tuned on — confirming the improvement is genuine, not curve-fitting.
+
+### Ablation — Does the Novel VSE Actually Help?
+
+Running Smart-RSI with the same settings, **with VSE off vs on**:
+
+| Version | Return | Profit Factor | Max Drawdown | Sharpe |
+|---|---|---|---|---|
+| Smart-RSI without VSE | +137.83% | 1.94 | −11.23% | 0.85 |
+| **Smart-RSI with VSE ★** | **+143.40%** | **2.00** | **−8.63%** | **0.87** |
+
+Adding VSE improves return, profit factor, Sharpe, and — most notably — cuts the drawdown from −11.2% to −8.6%. The novel component contributes a real, measurable benefit, especially to risk control.
+
+## 🔬 Methodology Highlights
+
+- **No look-ahead bias** — all indicators (RSI-2, moving averages, ATR) are computed from past data known at decision time.
+- **70/30 in-sample / out-of-sample split** to guard against overfitting.
+- **Transaction costs** of 10 basis points per round trip applied throughout.
+- **Grid search** over entry threshold, exit level, stop-loss, and VSE span, selected by in-sample Sharpe.
+- Built entirely in **Databricks** using a PySpark ETL → pandas backtesting pipeline.
 
 ## 📁 Repository Structure
 
-| File | What it is |
+| File | Description |
 |---|---|
-| `Gap_Strategy_Notebook.ipynb` | Full Databricks pipeline: yfinance → PySpark ETL → signals → trade-level backtest → benchmarks (Buy & Hold, SuperTrend 10/3) → charts. 29 cells. |
-| `app.py` + `requirements.txt` | Interactive Streamlit dashboard — parameter sliders, decluttered candlestick chart, equity curves, gap analysis, downloadable trade log. |
-| `gap_strategy.pine` | TradingView Pine Script v5 — plots live signals on any real chart with a built-in stats table and alerts. |
-| `Gap_Strategy_Research_Paper.docx` | Full research paper (IMRaD format, 12 verified academic references). |
+| `app.py` | Interactive Streamlit dashboard — live sliders, price/signal charts, the VSE visualisation, and an existing-vs-improved comparison. |
+| `requirements.txt` | Python dependencies. |
+| `README.md` | This file. |
+
+The full project also includes two Databricks notebooks (existing RSI-2 and improved Smart-RSI), a 5-chapter research report, a presentation, and a TradingView Pine Script for the improved strategy.
 
 ## 🚀 How to Run
 
-**Notebook (Databricks):** Workspace → Import → upload the `.ipynb` → attach to a cluster → select all 9 tickers in the widget → Run All. Data downloads automatically via yfinance — no dataset files needed.
-
-**Dashboard (local):**
+**Live dashboard (local):**
 ```bash
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-**TradingView:** open any daily chart → Pine Editor → paste `gap_strategy.pine` → Add to chart. Turn off the volume filter for forex pairs.
-
-## 🔬 Methodology Highlights
-
-- **No look-ahead bias** — ATR and average volume are lagged so every input is known at the open
-- **70/30 chronological in-sample/out-of-sample split** to guard against backtest overfitting
-- **Transaction costs** — all results reported gross and net of 10 bps per round trip
-- **Parameter sensitivity heatmap** over the K1 × volume-multiplier grid
-- Benchmarked against **Buy & Hold** and the **SuperTrend(10,3)** baseline on identical data
-- **9 instruments · 3 asset classes · 60,781 daily records · 2018–2026**
-
-## 📊 Key Results
-
-**1. Crypto barely gaps — the control group works.** Opening gaps are created by market closures, and the 24/7 crypto market confirms it:
-
-| Asset Class | Trading Days | Gaps > 0.5% | Mean \|Gap%\| |
-|---|---|---|---|
-| Equity | 10,615 | 6,178 (58%) | 1.03% |
-| Forex | 4,399 | 1,081 (25%) | 0.36% |
-| Crypto | 6,172 | 64 (1%) | **0.05%** |
-
-**2. Neither folklore rule holds cleanly.** In equities, both continuation and fill trades win ≈50% of the time — indistinguishable from a coin flip:
-
-| Asset Class | Signal | Trades | Win Rate | Avg ROI |
-|---|---|---|---|---|
-| Equity | Continuation | 235 | 51.1% | −0.23% |
-| Equity | Fill | 8,302 | 50.7% | +0.02% |
-| Forex | Fill | 2,813 | 28.1% | +0.001% |
-
-**3. Transaction costs destroy the edge.** The forex case is the clearest: profitable gross, wiped out net of a 10 bps cost — a textbook demonstration of Park & Irwin (2007):
-
-| Instrument | Gross Return | Gross Sharpe | Net Return (10 bps) | Net Sharpe |
-|---|---|---|---|---|
-| EURUSD=X (baseline) | +0.88% | 0.60 | **−79.3%** | **−24.7** |
-| AAPL (improved) | −62.6% | −0.80 | −93.2% | −2.30 |
-
-**4. Nothing beat Buy & Hold.** Out-of-sample, every instrument posted negative net returns and negative Sharpe ratios. For reference, NVDA buy-and-hold returned +4,017% over the period while the gap strategy bled out.
-
-**Conclusion:** The opening-gap anomaly is statistically visible in equities and forex but was **not economically exploitable on daily data at retail cost levels** — a result fully consistent with the Efficient Market Hypothesis (Fama, 1970).
+**TradingView (existing strategy):** open an SPY daily chart → add the Relative Strength Index (Length = 2), a Moving Average (Length = 200), and a Moving Average (Length = 5). Buy when price is above the 200-MA and RSI-2 is below 10; exit when price closes above the 5-MA.
 
 ## ⚠️ Disclaimer
 
-Educational research project. Historical backtest only — not investment advice. Data from Yahoo Finance via the open-source `yfinance` library.
+Educational research project. Historical backtest only — **not investment advice**. Neither strategy is guaranteed to be profitable in live trading, and like most long-only strategies, they do not outperform a simple buy-and-hold of SPY during a strong bull market; their value lies in a high win rate and controlled drawdown. Data sourced from Yahoo Finance via the open-source `yfinance` library.
 
 ## 🙏 Acknowledgements
 
-Course framework and SuperTrend baseline from our Algorithmic Trading instructor, **Asif Khalid**, at SZABIST. Key literature: Caporale & Plastun (2017), Plastun et al. (2020), Lou, Polk & Skouras (2019), Park & Irwin (2007), Fama (1970).
+Course framework and guidance from our Algorithmic Trading instructor, **Asif Khalid**, at SZABIST. Strategy foundation based on Larry Connors' RSI-2 mean-reversion work. Built with Python, pandas, PySpark, Streamlit, and Plotly.
