@@ -43,6 +43,25 @@ st.markdown(f"""
   .stTabs [aria-selected="true"] {{ background:{GRID}; color:#fff; }}
   .note {{ background:{PANEL}; border-left:3px solid {BLUE}; border-radius:8px;
        padding:12px 16px; color:#C9D1D9; font-size:0.9rem; }}
+
+  /* ---------- MOBILE-FRIENDLY (screens under 640px) ---------- */
+  @media (max-width: 640px) {{
+    .hero {{ font-size:1.35rem; line-height:1.2; }}
+    .sub {{ font-size:0.8rem; }}
+    .badge {{ font-size:0.62rem; padding:2px 7px; margin-bottom:4px; }}
+    /* metric cards: smaller text so they fit two-per-row on phones */
+    div[data-testid="stMetricValue"] {{ font-size:1.1rem; }}
+    div[data-testid="stMetricLabel"] p {{ font-size:0.62rem; }}
+    div[data-testid="stMetric"] {{ padding:8px 10px; }}
+    /* tighten the main content padding on phones */
+    .block-container {{ padding-left:0.6rem !important; padding-right:0.6rem !important;
+                        padding-top:1rem !important; }}
+    .stTabs [data-baseweb="tab"] {{ padding:6px 9px; font-size:0.8rem; }}
+    .note {{ font-size:0.82rem; padding:10px 12px; }}
+  }}
+  /* let Streamlit's metric columns wrap instead of squashing on narrow screens */
+  div[data-testid="stHorizontalBlock"] {{ flex-wrap: wrap; }}
+  div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{ min-width: 140px; }}
 </style>
 """, unsafe_allow_html=True)
 
@@ -174,13 +193,14 @@ imp_t, imp_sp = backtest(full, base_entry, use_vse, vse_span, rsi_exit, stop_atr
 ex_t, ex_sp = backtest(full, 10, False, vse_span, rsi_exit, stop_atr, smart=False)
 S = stats(imp_t, imp_sp); E = stats(ex_t, ex_sp)
 
-c = st.columns(6)
+c = st.columns(3)
 c[0].metric("Total Return", f"{S['ret']:,.1f}%", f"{S['ret']-E['ret']:+.1f}% vs existing")
 c[1].metric("Win Rate", f"{S['win']:,.1f}%")
-c[2].metric("Profit Factor", f"{S['pf']:,.2f}")
-c[3].metric("Max Drawdown", f"{S['dd']:,.1f}%")
-c[4].metric("Sharpe", f"{S['sharpe']:,.2f}")
-c[5].metric("Trades", f"{S['trades']:,}")
+c[2].metric("Sharpe", f"{S['sharpe']:,.2f}")
+c2 = st.columns(3)
+c2[0].metric("Profit Factor", f"{S['pf']:,.2f}")
+c2[1].metric("Max Drawdown", f"{S['dd']:,.1f}%")
+c2[2].metric("Trades", f"{S['trades']:,}")
 
 if use_vse:
     cur = imp_sp["EntryLevel"].iloc[-1]
